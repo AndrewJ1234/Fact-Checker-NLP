@@ -126,3 +126,6 @@ if __name__ == "__main__":
     args = p.parse_args()
     process_documents()
     answer_queries(args.file)
+    #ir function is completed, to access corresponding document with each statement, access correct_document dictionary
+    #correct_document[{statement number}] = article
+    #next step is to fetch top 3 context inside each article
