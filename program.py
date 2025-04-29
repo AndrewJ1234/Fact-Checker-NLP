@@ -1,3 +1,5 @@
+import collections
+
 from stop_list import closed_class_stop_words
 import string
 import math
@@ -50,13 +52,18 @@ def process_documents():
                 words[word] = 1
         abstract_idf[key] = dict()
         for key1 in words.keys():
-            abstract_idf[key][key1] = math.log(words[key1]+1)*idf(key1)
-def idf(word):
-    numDocOccurences = 0
-    for document in docs.values():
-        if document.count(word)>0:
-            numDocOccurences+=1
-    return math.log(len(docs)/(numDocOccurences+1))
+            abstract_idf[key][key1] = math.log(words[key1]+1)*idf(key1,docs)
+def idf(word,content):
+    numOccurences = 0
+    if isinstance(content,dict):
+        for document in content.values():
+            if document.count(word)>0:
+                numOccurences+=1
+    else:
+        for sentence in content:
+            if sentence.count(word)>0:
+                numOccurences+=1
+    return math.log(len(content)/(numOccurences+1))
 def process_query(query):
     words = dict()
     translator = str.maketrans('', '', string.punctuation)
@@ -76,7 +83,7 @@ def process_query(query):
         if word in words:
             words[word][0]+=1
         else:
-            words[word] = [1,idf(word)]
+            words[word] = [1,idf(word,docs)]
     idf_tags = dict()
     for key in words.keys():
         idf_tags[key] = math.log(words[key][0]+1)*words[key][1]
@@ -119,7 +126,49 @@ def answer_queries(doc):
             cosines.append([key1,calc_cosine(vector,abstract_idf[key1])])
         cosinesorted = sorted(cosines, key=lambda x: x[1], reverse=True)
         correct_document[key] = docs[cosinesorted[0][0]]
+    queriesg = queries
     return
+def sentence_create_idf(sentence,sentences):
+    sentence = sentence.split(' ')
+    res = dict()
+    word_frequency = dict()
+    word_idf = dict()
+    for word in sentence:
+        if word not in stoplist and word!=':' and word!='"':
+            word_frequency[word] = word_frequency.get(word,0)+1
+            if word not in word_idf:
+                word_idf[word] = idf(word,sentences)
+    for word in word_frequency:
+        res[word] = (word_frequency[word]*word_idf[word])
+    return res
+def process_sentences(content,statementKey):
+    content = content.replace('\n'," ").lower()
+    content_sentences = content.split(".")
+    sentences = set(content_sentences)
+    key = 1
+    sentence_tfidf = collections.defaultdict(list)
+    for sentence in sentences:
+        sentence_tfidf[key] = sentence_create_idf(sentence,sentences)
+        key+=1
+    statement_tfidf = sentence_create_idf(queriesg[statementKey],sentences)
+    cosines = []
+    for key in sentence_tfidf:
+        cosines.append([calc_cosine(sentence_tfidf,statement_tfidf[key]),content_sentences[key-1]])
+    cosinesorted = sorted(cosines, key=lambda x: x[0], reverse=True)
+    top3Article = []
+    count = 0
+    while len(cosinesorted)-1>count and count<3 :
+        count+=1
+        top3Article.append(cosinesorted[count])
+    return top3Article
+
+
+queriesg = dict()
+top3 = collections.defaultdict(list)
+def fetchtop3sentences():
+    for key in correct_document:
+        top3[key] = process_sentences(correct_document[key],key)
+
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("file")
@@ -129,3 +178,6 @@ if __name__ == "__main__":
     #ir function is completed, to access corresponding document with each statement, access correct_document dictionary
     #correct_document[{statement number}] = article
     #next step is to fetch top 3 context inside each article
+    fetchtop3sentences()
+    #fetching top 3 context completed, stored in top3. top3[{statement  number}] = [{list of top 3 sentences inside article}]
+    #all that is left is determining T/F based off of the context
