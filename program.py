@@ -100,7 +100,7 @@ def calc_cosine(x,y):
     bottom = (bottom_left*bottom_right)**.5+1
     return top/bottom
 
-
+dictAnswer = dict()
 def answer_queries(doc):
     with open(doc, 'r', encoding='utf-8') as file:
         text = file.readlines()
@@ -109,12 +109,14 @@ def answer_queries(doc):
     for line in text:
         if len(line)>1:
             statement = ""
+            result = ""
             line = line.replace("\n"," ").lower()
             if doc=='Training':
                 result, statement = line.split(' ',1)
             else:
                 statement = line
             queries[key] = statement
+            dictAnswer[key] = result
             keylist.append(key)
             key+=1
     count = 0
@@ -168,16 +170,52 @@ top3 = collections.defaultdict(list)
 def fetchtop3sentences():
     for key in correct_document:
         top3[key] = process_sentences(correct_document[key],key)
-
+def find_cosine(cosinesAndTF):
+    threshold = 0
+    acc = 0
+    listDeci = [i*.01 for i in range(0,101)]
+    for i in listDeci:
+        numCorrect = 0
+        total = len(cosinesAndTF)
+        for cosine,tf in cosinesAndTF:
+            pred = 'True' if cosine>=i else 'False'
+            if pred==tf:
+                numCorrect+=1
+        c_acc = numCorrect/total
+        if c_acc>acc:
+            acc = c_acc
+            threshold = i
+    return [threshold,acc]
+universalCosine = []
+def train():
+    res = []
+    for key in top3:
+       res.append([top3[key][0][0],dictAnswer[key]])
+    correct_threshold = find_cosine(res)
+    universalCosine.append(correct_threshold)
+    return
+def calculate():
+    with open("output.txt",'w',encoding='utf-8') as file:
+        for key in top3:
+            if top3[key][0][0]>universalCosine[0]:
+                file.write("True")
+            else:
+                file.write("False")
+            file.write("\n\n")
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("file")
+    p.add_argument("training")
+    p.add_argument("test")
     args = p.parse_args()
     process_documents()
-    answer_queries(args.file)
+    answer_queries(args.training)
     #ir function is completed, to access corresponding document with each statement, access correct_document dictionary
     #correct_document[{statement number}] = article
     #next step is to fetch top 3 context inside each article
     fetchtop3sentences()
     #fetching top 3 context completed, stored in top3. top3[{statement  number}] = [{list of top 3 sentences inside article}]
     #all that is left is determining T/F based off of the context
+    train()
+    answer_queries(args.test)
+    fetchtop3sentences()
+    calculate()
