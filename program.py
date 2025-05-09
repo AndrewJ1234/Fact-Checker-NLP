@@ -1,6 +1,6 @@
 import collections
 
-from stop_list import closed_class_stop_words
+from stop_list import closed_class_stop_words,negatives
 import string
 import math
 from nltk.stem import WordNetLemmatizer
@@ -9,6 +9,7 @@ import argparse
 nltk.download('wordnet')
 stem = WordNetLemmatizer()
 stoplist = set(closed_class_stop_words)
+neglist = set(negatives)
 keylist = list()
 docs = dict()
 abstract_idf = dict()
@@ -18,17 +19,17 @@ def remove_plural(word):
         return word[:-1]
     return word
 def process_documents():
-    with open("articles", 'r', encoding='utf-8') as file:
+    with open("articles.txt", 'r', encoding='utf-8') as file:
         text = file.readlines()
-    skip = 0
-    key = -1
+    key = None
     for line in text:
         line = line.replace('\n',"").lower()
         if len(line)<1:
             continue
-        if line.startswith("##"):
-            key = int(line[2::])
+        if line[1:3] == "##":
+            key = int(line[3::])
             docs[key] = ""
+            continue
         docs[key] +=line
     for key in docs.keys():
         words = dict()
@@ -37,6 +38,10 @@ def process_documents():
         for word in querywords:
             word = stem.lemmatize(word,pos='n')
             word = remove_plural(word)
+            word = word.replace('"','')
+            word = word.replace(':','')
+            word = word.replace('(','')
+            word = word.replace(')','')
             if word == '':
                 continue
             if word in stoplist:
@@ -75,6 +80,10 @@ def process_query(query):
             continue
         if word in stoplist:
             continue
+        word = word.replace('"', '')
+        word = word.replace(':', '')
+        word = word.replace('(', '')
+        word = word.replace(')', '')
         try:
             float(word)
             continue
@@ -102,6 +111,11 @@ def calc_cosine(x,y):
 
 dictAnswer = dict()
 def answer_queries(doc):
+    global queriesg
+    keylist.clear()
+    dictAnswer.clear()
+    correct_document.clear()
+    top3.clear()
     with open(doc, 'r', encoding='utf-8') as file:
         text = file.readlines()
     queries = dict()
@@ -111,7 +125,7 @@ def answer_queries(doc):
             statement = ""
             result = ""
             line = line.replace("\n"," ").lower()
-            if doc=='Training':
+            if doc=='Training.txt':
                 result, statement = line.split(' ',1)
             else:
                 statement = line
@@ -136,6 +150,10 @@ def sentence_create_idf(sentence,sentences):
     word_frequency = dict()
     word_idf = dict()
     for word in sentence:
+        word = word.replace('"', '')
+        word = word.replace(':', '')
+        word = word.replace('(', '')
+        word = word.replace(')', '')
         if word not in stoplist and word!=':' and word!='"':
             word_frequency[word] = word_frequency.get(word,0)+1
             if word not in word_idf:
@@ -143,6 +161,14 @@ def sentence_create_idf(sentence,sentences):
     for word in word_frequency:
         res[word] = (word_frequency[word]*word_idf[word])
     return res
+def calcNegatives(sentence):
+    num_negatives = 0
+    num_words =0
+    for word in sentence:
+        if word in negatives:
+            num_negatives+=1
+        num_words+=1
+    return num_negatives/num_words
 def process_sentences(content,statementKey):
     content = content.replace('\n'," ").lower()
     content_sentences = content.split(".")
@@ -155,52 +181,70 @@ def process_sentences(content,statementKey):
     statement_tfidf = sentence_create_idf(queriesg[statementKey],sentences)
     cosines = []
     for key in sentence_tfidf:
-        cosines.append([calc_cosine(sentence_tfidf,statement_tfidf[key]),content_sentences[key-1]])
+        cosines.append([calc_cosine(sentence_tfidf[key],statement_tfidf),content_sentences[key-1]])
     cosinesorted = sorted(cosines, key=lambda x: x[0], reverse=True)
     top3Article = []
     count = 0
+    negatives = 0
     while len(cosinesorted)-1>count and count<3 :
         count+=1
+        cosinesorted[count][1] = convert_to_list(cosinesorted[count][1])
+        negatives += (abs(3-count)*calcNegatives(cosinesorted[count][1]))
         top3Article.append(cosinesorted[count])
-    return top3Article
+    #return top3Article
+    return negatives
+def convert_to_list(sentence):
+    res = sentence.replace('"','')
+    res = res.replace(',','')
+    res = res.replace(':','')
+    res = res.replace('(','')
+    res = res.replace(')','')
+    res = res.split(' ')
+    return res
 
-
-queriesg = dict()
 top3 = collections.defaultdict(list)
 def fetchtop3sentences():
     for key in correct_document:
         top3[key] = process_sentences(correct_document[key],key)
-def find_cosine(cosinesAndTF):
-    threshold = 0
-    acc = 0
-    listDeci = [i*.01 for i in range(0,101)]
-    for i in listDeci:
-        numCorrect = 0
-        total = len(cosinesAndTF)
-        for cosine,tf in cosinesAndTF:
-            pred = 'True' if cosine>=i else 'False'
-            if pred==tf:
-                numCorrect+=1
-        c_acc = numCorrect/total
-        if c_acc>acc:
-            acc = c_acc
-            threshold = i
-    return [threshold,acc]
-universalCosine = []
+    print(top3)
+def find_negative(negative_result):
+    best_threshold = 0
+    best_accuracy = 0
+
+    # Try thresholds between 0 and 1 at intervals of 0.01
+    for threshold in [i * 0.01 for i in range(101)]:
+        correct = 0
+        total = len(negative_result)
+
+        for neg_score, label in negative_result:
+            prediction = 'false' if neg_score > threshold else 'true'
+            if prediction == label.lower():
+                correct += 1
+
+        acc = correct / total
+        if acc > best_accuracy:
+            best_accuracy = acc
+            best_threshold = threshold
+    print(f"Best negation threshold: {best_threshold:.3f} with accuracy: {best_accuracy:.3f}")
+    return best_threshold
+universalNegative = []
 def train():
     res = []
     for key in top3:
-       res.append([top3[key][0][0],dictAnswer[key]])
-    correct_threshold = find_cosine(res)
-    universalCosine.append(correct_threshold)
+        #top_scores = [score for score, _ in top3[key]]
+        #avg_score = sum(top_scores) / len(top_scores)
+        res.append([top3[key], dictAnswer[key]])
+    correct_threshold = find_negative(res)
+    universalNegative.append(correct_threshold)
     return
 def calculate():
     with open("output.txt",'w',encoding='utf-8') as file:
         for key in top3:
-            if top3[key][0][0]>universalCosine[0]:
-                file.write("True")
+            num_negatives = top3[key]
+            if num_negatives>universalNegative[0]:
+                file.write("FALSE")
             else:
-                file.write("False")
+                file.write("TRUE")
             file.write("\n\n")
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
