@@ -14,6 +14,7 @@ keylist = list()
 docs = dict()
 abstract_idf = dict()
 correct_document = dict()
+docs_tokenized = dict()
 def remove_plural(word):
     if word.endswith('s') and not word.endswith('ss') and len(word) > 3:
         return word[:-1]
@@ -26,11 +27,17 @@ def process_documents():
         line = line.replace('\n',"").lower()
         if len(line)<1:
             continue
-        if line[1:3] == "##":
-            key = int(line[3::])
+        line = line.lstrip()
+        line = line.replace('\ufeff','')
+        if line.startswith("##"):
+            key = int(line[2::])
             docs[key] = ""
             continue
         docs[key] +=line
+    for key in docs:
+        tokens = docs[key].translate(str.maketrans('', '', string.punctuation)).lower().split()
+        tokens = [remove_plural(stem.lemmatize(w, pos='n')) for w in tokens]
+        docs_tokenized[key] = tokens
     for key in docs.keys():
         words = dict()
         translator = str.maketrans('', '', string.punctuation)
@@ -57,18 +64,15 @@ def process_documents():
                 words[word] = 1
         abstract_idf[key] = dict()
         for key1 in words.keys():
-            abstract_idf[key][key1] = math.log(words[key1]+1)*idf(key1,docs)
-def idf(word,content):
+            abstract_idf[key][key1] = math.log(words[key1]+1)*idf(key1)
+def idf(word):
     numOccurences = 0
-    if isinstance(content,dict):
-        for document in content.values():
-            if document.count(word)>0:
-                numOccurences+=1
-    else:
-        for sentence in content:
-            if sentence.count(word)>0:
-                numOccurences+=1
-    return math.log(len(content)/(numOccurences+1))
+    for document in docs_tokenized.values():
+        if word in document:
+            numOccurences += 1
+    if numOccurences == 0:
+        return 0
+    return math.log(len(docs_tokenized) / numOccurences)
 def process_query(query):
     words = dict()
     translator = str.maketrans('', '', string.punctuation)
@@ -92,7 +96,7 @@ def process_query(query):
         if word in words:
             words[word][0]+=1
         else:
-            words[word] = [1,idf(word,docs)]
+            words[word] = [1,idf(word)]
     idf_tags = dict()
     for key in words.keys():
         idf_tags[key] = math.log(words[key][0]+1)*words[key][1]
@@ -115,7 +119,6 @@ def answer_queries(doc):
     keylist.clear()
     dictAnswer.clear()
     correct_document.clear()
-    top3.clear()
     with open(doc, 'r', encoding='utf-8') as file:
         text = file.readlines()
     queries = dict()
@@ -141,26 +144,10 @@ def answer_queries(doc):
         for key1 in abstract_idf.keys():
             cosines.append([key1,calc_cosine(vector,abstract_idf[key1])])
         cosinesorted = sorted(cosines, key=lambda x: x[1], reverse=True)
-        correct_document[key] = docs[cosinesorted[0][0]]
+
+        correct_document[key] = [docs[cosinesorted[0][0]],cosinesorted[0][0]]
     queriesg = queries
     return
-def sentence_create_idf(sentence,sentences):
-    sentence = sentence.split(' ')
-    res = dict()
-    word_frequency = dict()
-    word_idf = dict()
-    for word in sentence:
-        word = word.replace('"', '')
-        word = word.replace(':', '')
-        word = word.replace('(', '')
-        word = word.replace(')', '')
-        if word not in stoplist and word!=':' and word!='"':
-            word_frequency[word] = word_frequency.get(word,0)+1
-            if word not in word_idf:
-                word_idf[word] = idf(word,sentences)
-    for word in word_frequency:
-        res[word] = (word_frequency[word]*word_idf[word])
-    return res
 def calcNegatives(sentence):
     num_negatives = 0
     num_words =0
@@ -169,52 +156,16 @@ def calcNegatives(sentence):
             num_negatives+=1
         num_words+=1
     return num_negatives/num_words
-def process_sentences(content,statementKey):
-    content = content.replace('\n'," ").lower()
-    content_sentences = content.split(".")
-    sentences = set(content_sentences)
-    key = 1
-    sentence_tfidf = collections.defaultdict(list)
-    for sentence in sentences:
-        sentence_tfidf[key] = sentence_create_idf(sentence,sentences)
-        key+=1
-    statement_tfidf = sentence_create_idf(queriesg[statementKey],sentences)
-    cosines = []
-    for key in sentence_tfidf:
-        cosines.append([calc_cosine(sentence_tfidf[key],statement_tfidf),content_sentences[key-1]])
-    cosinesorted = sorted(cosines, key=lambda x: x[0], reverse=True)
-    top3Article = []
-    count = 0
-    negatives = 0
-    while len(cosinesorted)-1>count and count<3 :
-        count+=1
-        cosinesorted[count][1] = convert_to_list(cosinesorted[count][1])
-        negatives += (abs(3-count)*calcNegatives(cosinesorted[count][1]))
-        top3Article.append(cosinesorted[count])
-    #return top3Article
-    return negatives
-def convert_to_list(sentence):
-    res = sentence.replace('"','')
-    res = res.replace(',','')
-    res = res.replace(':','')
-    res = res.replace('(','')
-    res = res.replace(')','')
-    res = res.split(' ')
-    return res
-
-top3 = collections.defaultdict(list)
-def fetchtop3sentences():
-    for key in correct_document:
-        top3[key] = process_sentences(correct_document[key],key)
-    print(top3)
-def find_negative(negative_result):
+def find_negative(negative_result,flagari):
     best_threshold = 0
     best_f1 = 0
-
-    # Try thresholds between 0 and 1
-    for threshold in [i * 0.01 for i in range(101)]:
+    scale = 0
+    if flagari == 1:
+        scale = 1
+    else:
+        scale = .01
+    for threshold in [i * scale for i in range(101)]:
         TP = FP = FN = 0
-
         for score, label in negative_result:
             actual = label.lower()
             predicted = 'false' if score > threshold else 'true'
@@ -226,41 +177,54 @@ def find_negative(negative_result):
                     FP += 1
             elif predicted == 'true' and actual == 'false':
                 FN += 1
-
-        # Compute precision and recall
         precision = TP / (TP + FP) if (TP + FP) > 0 else 0
         recall    = TP / (TP + FN) if (TP + FN) > 0 else 0
-
-        # Compute F1 score
         f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
-
         if f1 > best_f1:
             best_f1 = f1
             best_threshold = threshold
-
-    print(f"Best negation threshold: {best_threshold:.3f} with F1 score: {best_f1:.3f}")
     return best_threshold
 universalNegative = []
-def train():
-    res = []
-    for key in top3:
-        #top_scores = [score for score, _ in top3[key]]
-        #avg_score = sum(top_scores) / len(top_scores)
-        res.append([top3[key], dictAnswer[key]])
-    correct_threshold = find_negative(res)
-    universalNegative.append(correct_threshold)
-    return
+def ari(key):
+    words = docs_tokenized[correct_document[key][1]]
+    num_words = len(words)
+    num_chars = 0
+    for word in words:
+        num_chars+=len(word)
+    text = docs[correct_document[key][1]]
+    num_sentences = len(text.split('.'))
+    if num_sentences ==0 or num_words ==0:
+        return 0
+    aris = 4.71*(num_chars/num_words)+.5*(num_words/num_sentences)-21.43
+    return aris
+def train_ari():
+    arilist = []
+    for key in correct_document:
+        ari_num = ari(key)
+        result = dictAnswer[key]
+        arilist.append([ari_num,result.lower()])
+    threshold = find_negative(arilist,1)
+    universalNegative.append(threshold)
 def train_negatives():
     res = []
     for key in negative_words:
         res.append([negative_words[key], dictAnswer[key]])
-    correct_threshold=find_negative(res)
+    correct_threshold=find_negative(res,0)
     universalNegative.append(correct_threshold)
 def calculate():
     with open("output.txt",'w',encoding='utf-8') as file:
         for key in negative_words:
             num_negatives = negative_words[key]
             if num_negatives>universalNegative[0]:
+                file.write("FALSE")
+            else:
+                file.write("TRUE")
+            file.write("\n\n")
+def baseline():
+    with open("ari_baseline_output.txt", 'w', encoding='utf-8') as file:
+        for key in correct_document:
+            score = ari(key)
+            if score > universalNegative[1]:
                 file.write("FALSE")
             else:
                 file.write("TRUE")
@@ -284,22 +248,19 @@ def find_negatives(article):
 
 def calculate_negative_article():
     for key in correct_document:
-        negative_words[key] = find_negatives(correct_document[key])
+        article = correct_document[key][0]
+        score = find_negatives(article)
+        negative_words[key] = score
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("training")
     p.add_argument("test")
     args = p.parse_args()
-    process_documents()
-    answer_queries(args.training)
-    #ir function is completed, to access corresponding document with each statement, access correct_document dictionary
-    #correct_document[{statement number}] = article
-    #next step is to fetch top 3 context inside each article
-    #fetchtop3sentences()
-    #fetching top 3 context completed, stored in top3. top3[{statement  number}] = [{list of top 3 sentences inside article}]
-    #all that is left is determining T/F based off of the context
+    process_documents() #creates tfidf vector for each article in abstract_idf
+    answer_queries(args.training) #takes in the statement files, calculates tfidf of statement, compare with abstract_idf to find highest matching and assign to correct_document[key] = article
     calculate_negative_article()
     #train()
+    train_ari()
     train_negatives()
 
     negative_words.clear()
@@ -307,3 +268,4 @@ if __name__ == "__main__":
     #fetchtop3sentences()
     calculate_negative_article()
     calculate()
+    baseline()
