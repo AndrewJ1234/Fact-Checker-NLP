@@ -209,23 +209,36 @@ def fetchtop3sentences():
     print(top3)
 def find_negative(negative_result):
     best_threshold = 0
-    best_accuracy = 0
+    best_f1 = 0
 
-    # Try thresholds between 0 and 1 at intervals of 0.01
+    # Try thresholds between 0 and 1
     for threshold in [i * 0.01 for i in range(101)]:
-        correct = 0
-        total = len(negative_result)
+        TP = FP = FN = 0
 
-        for neg_score, label in negative_result:
-            prediction = 'false' if neg_score > threshold else 'true'
-            if prediction == label.lower():
-                correct += 1
+        for score, label in negative_result:
+            actual = label.lower()
+            predicted = 'false' if score > threshold else 'true'
 
-        acc = correct / total
-        if acc > best_accuracy:
-            best_accuracy = acc
+            if predicted == 'false':
+                if actual == 'false':
+                    TP += 1
+                else:
+                    FP += 1
+            elif predicted == 'true' and actual == 'false':
+                FN += 1
+
+        # Compute precision and recall
+        precision = TP / (TP + FP) if (TP + FP) > 0 else 0
+        recall    = TP / (TP + FN) if (TP + FN) > 0 else 0
+
+        # Compute F1 score
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+
+        if f1 > best_f1:
+            best_f1 = f1
             best_threshold = threshold
-    print(f"Best negation threshold: {best_threshold:.3f} with accuracy: {best_accuracy:.3f}")
+
+    print(f"Best negation threshold: {best_threshold:.3f} with F1 score: {best_f1:.3f}")
     return best_threshold
 universalNegative = []
 def train():
@@ -237,15 +250,41 @@ def train():
     correct_threshold = find_negative(res)
     universalNegative.append(correct_threshold)
     return
+def train_negatives():
+    res = []
+    for key in negative_words:
+        res.append([negative_words[key], dictAnswer[key]])
+    correct_threshold=find_negative(res)
+    universalNegative.append(correct_threshold)
 def calculate():
     with open("output.txt",'w',encoding='utf-8') as file:
-        for key in top3:
-            num_negatives = top3[key]
+        for key in negative_words:
+            num_negatives = negative_words[key]
             if num_negatives>universalNegative[0]:
                 file.write("FALSE")
             else:
                 file.write("TRUE")
             file.write("\n\n")
+negative_words = {}
+def find_negatives(article):
+    words = article.split(' ')
+    num_words = 0
+    num_negatives = 0
+    for word in words:
+        word = word.replace('.','')
+        word = word.replace('"', '')
+        word = word.replace(':', '')
+        word = word.replace('(', '')
+        word = word.replace(')', '')
+        if len(word)>0:
+            if word in neglist:
+                num_negatives+=1
+            num_words+=1
+    return num_negatives/num_words
+
+def calculate_negative_article():
+    for key in correct_document:
+        negative_words[key] = find_negatives(correct_document[key])
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("training")
@@ -256,10 +295,15 @@ if __name__ == "__main__":
     #ir function is completed, to access corresponding document with each statement, access correct_document dictionary
     #correct_document[{statement number}] = article
     #next step is to fetch top 3 context inside each article
-    fetchtop3sentences()
+    #fetchtop3sentences()
     #fetching top 3 context completed, stored in top3. top3[{statement  number}] = [{list of top 3 sentences inside article}]
     #all that is left is determining T/F based off of the context
-    train()
+    calculate_negative_article()
+    #train()
+    train_negatives()
+
+    negative_words.clear()
     answer_queries(args.test)
-    fetchtop3sentences()
+    #fetchtop3sentences()
+    calculate_negative_article()
     calculate()
