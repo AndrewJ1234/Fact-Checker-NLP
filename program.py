@@ -221,7 +221,7 @@ def calculate():
     with open("output.txt",'w',encoding='utf-8') as file:
         for key in negative_words:
             num_negatives = negative_words[key]
-            if num_negatives>universalNegative[0]:
+            if num_negatives>universalNegative[1]:
                 file.write("FALSE")
             else:
                 file.write("TRUE")
