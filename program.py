@@ -20,7 +20,8 @@ def remove_plural(word):
         return word[:-1]
     return word
 def process_documents():
-    with open("articles.txt", 'r', encoding='utf-8') as file:
+    # with open("articles.txt", 'r', encoding='utf-8') as file:
+    with open("mod_articles.txt", 'r', encoding='utf-8') as file:
         text = file.readlines()
     key = None
     for line in text:
@@ -146,6 +147,11 @@ def answer_queries(doc):
         cosinesorted = sorted(cosines, key=lambda x: x[1], reverse=True)
 
         correct_document[key] = [docs[cosinesorted[0][0]],cosinesorted[0][0]]
+    with open('output2.txt','w',encoding='utf-8') as file:
+        for key in correct_document:
+            file.write(queries[key])
+            file.write('\n'+str(correct_document[key][1]))
+            file.write('\n\n')
     queriesg = queries
     return
 def calcNegatives(sentence):
