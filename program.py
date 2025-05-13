@@ -20,7 +20,6 @@ def remove_plural(word):
         return word[:-1]
     return word
 def process_documents():
-    # with open("articles.txt", 'r', encoding='utf-8') as file:
     with open("mod_articles.txt", 'r', encoding='utf-8') as file:
         text = file.readlines()
     key = None

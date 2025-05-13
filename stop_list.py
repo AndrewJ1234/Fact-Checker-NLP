@@ -21,4 +21,4 @@ closed_class_stop_words = ['a','the','an','and','or','but','about','above','afte
                            'him', 'his', 'her', 'she', 'it', 'they', 'them', 'its', 'their','theirs',\
                            'you','your','yours','me','my','mine','I','we','us','much','and/or'
                            ]
-negatives = ['false','incorrect','dismissed','untrue','misleading','wrong']
+negatives = ['false','incorrect','untrue','misleading','wrong']
