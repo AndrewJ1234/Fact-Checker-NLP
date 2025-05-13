@@ -20,7 +20,6 @@ def remove_plural(word):
         return word[:-1]
     return word
 def process_documents():
-    # with open("articles.txt", 'r', encoding='utf-8') as file:
     with open("mod_articles.txt", 'r', encoding='utf-8') as file:
         text = file.readlines()
     key = None
@@ -221,7 +220,7 @@ def calculate():
     with open("output.txt",'w',encoding='utf-8') as file:
         for key in negative_words:
             num_negatives = negative_words[key]
-            if num_negatives>universalNegative[0]:
+            if num_negatives>universalNegative[1]:
                 file.write("FALSE")
             else:
                 file.write("TRUE")
